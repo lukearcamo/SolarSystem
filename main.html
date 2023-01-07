@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>THREE</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <style>
+        body { margin: 0; }
+        #canvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        #canvas:focus { outline: none; }
+        #overlay {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            padding: 10px;
+            background-color: rgba(5, 5, 5, 0.7);
+            font-family: Verdana;
+            color: white;
+            font-size: 12px;
+        }
+        #command {
+            background-color: black;
+            color: white;
+            border: 1px solid white;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            border: 1px solid red;
+        }
+    </style>
+    <body>
+        <!-- <canvas id="canvas" tabindex="0" width="1920" height="1080"></canvas> -->
+        <canvas id="canvas" tabindex="0" width="1280" height="720"></canvas>
+        <div id="overlay">
+            <div>XYZ: <span id="coords"></span></div>
+            <div>FPS: <span id="fps"></span></div>
+            <div>Renderer: <span id="renderer"></span></div>
+            <hr>
+            <div>Command: <input type="text" id="command"></input></div>
+            <div>Output: <span id="output"></span></div>
+            <div>Debug: <span id="debug"></span></div>
+            <hr>
+            <div>t: <span id="time"></span></div>
+            <div>x: <span id="position"></span></div>
+            <div>v: <span id="velocity"></span></div>
+            <div>a: <span id="acceleration"></span></div>
+        </div>
+        <div id="crosshair"></div>
+        <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://unpkg.com/three@0.148.0/build/three.module.js",
+                    "three/addons/": "https://unpkg.com/three@0.148.0/examples/jsm/"
+                }
+            }
+        </script>
+        <script type="module">
+            // https://ssd.jpl.nasa.gov/planets/approx_pos.html
+            // https://ssd.jpl.nasa.gov/tools/orbit_viewer.html
+            // https://ssd.jpl.nasa.gov/planets/phys_par.html
+            // https://ssd.jpl.nasa.gov/sats/elem/ DO NOT USE THIS ONE, IT HAS NO MEAN ANOMALY, use horizons instead
+
+            // Asteroids:
+            // https://nssdc.gsfc.nasa.gov/planetary/factsheet/asteroidfact.html
+            // https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html
+
+            // Axial tilts taken from https://nssdc.gsfc.nasa.gov/planetary/planetfact.html
+
+            // For satellites:
+            // https://en.wikipedia.org/wiki/Orbital_elements#Orbit_prediction
+            // Use mean orbit parameters
+            // Get mean motion from horizons system
+            // Create a new satellite class, use this approximate calculation method
+            // All orbital parameters assumed to stay constant, except for mean anomaly since the satellite actually moves
+            // Mean motion is the rate of change of mean anomaly 
+
+            // Before we begin this, you need to split up your code into manageable modules
+            // Constants & Utils module, Add a whole bunch of unit conversion constants & functions
+            // - MB exclude mod function because it is only used in body
+            // Body module, Ship module (detached from camera, so you can have multiple instances)
+            // Controls module (key events, orbit controls, ship controls, switching between scenes? or put that in Main?)
+            // Main: Setup, Orbit data, Setup two scenes, Two cameras
+            // Unrelated: for Body, separate the matrix calculation from the ellipse update and sphere update
+
+            // So notice how the grid jitters but not the geometries
+            // This is because the grid is a vast object, unlike the planets/ship
+            // In another experiment, the jitter stopped when the grid was replaced with just a single line, going from -1e6 to +1e6,
+            // and centered upon the origin
+            // GLSL matrices and attributes can only support a single-precision floats, so when you pass in vaster values, they fail.
+            // By using floating origin and smaller vectors, you can avoid this
+            // But ignore this, just copy the original ellipse stuff, eliminate the AU scale factor and just make 1 u = 1 m,
+            // and when zooming in to ship level (not planet level) hide grid and mb all orbits
+
+            // IRL FOV, narrowed down to screen, should be approx 45 deg
+            // or mb use orthocamera for overview?
+
+            // Instead of point particles, just improve highlights pointing system -- Toggle highlight for each & multiple planets
+            
+            // Next step: Trajectories
+            // - https://levelup.gitconnected.com/the-two-body-problem-in-python-6bbe4a0b2f88
+            // - https://en.wikipedia.org/wiki/Two-body_problem#Reduction_to_two_independent,_one-body_problems
+            // - "two-body has closed solution" means still must use numerical integration to get closed formula for position
+            // - https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods
+            // - No js implementation of numerical integration, so must code yourself somehow
+            // - https://en.wikipedia.org/wiki/Linear_differential_equation#System_of_linear_differential_equations
+            // - https://evgenii.com/files/2018/08/two-body-problem-simulator/the_complete_code/
+            // Next step: Improve UI, better highlight system, add CSS2DRenderer labels, etc.
+            // Optimize geometries, Separate to modules and host local server
+            // Improved command system,
+            // - switch statements instead of if else if else?
+            // - mb input js functions directly somehow, use console tho modules cannot expose global vars, idk
+            // - Trajectories -- Just do regular https://en.wikipedia.org/wiki/Verlet_integration at first, then add https://en.wikipedia.org/wiki/Patched_conic_approximation
+            // Next step: Satellites
+            // Next step: Gravity, Ship
+            // Next step: Rings
+            // Make the planets spin
+
+            // Terminal: python -m http.server
+            // Can close terminal panel
+            // localhost:8000
+            // Reopen terminal panel, Ctrl + C to end
+
+            // FYI The imported consts are not highlighted because this is an HTML file
+            // If u put this script into a separate js module file, it will work
+            
+            import * as THREE from "three";
+            import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+            // import * as Utils from "./utils.js";
+            import { AU_TO_m, TO_RADIANS, ms_TO_CENTURIES, j2000_UTC, sphereGeo } from "./utils.js";
+            import { Body } from "./body.js";
+            import { Ship } from "./ship.js";
+            import { bodies, recalculateSystem } from "./system.js";
+
+            // ===== Setup =====
+
+            const canvas = document.getElementById("canvas");
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true }); // , precision: "highp", powerPreference: "high-performance" 
+            window.addEventListener("resize", () => {
+                renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+                camera.aspect = canvas.clientWidth / canvas.clientHeight;
+                camera.updateProjectionMatrix();
+            });
+
+            const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 1, 1e15); // with log depth buffer
+            camera.position.set(0, 0, 5 * AU_TO_m);
+
+            const orbitControls = new OrbitControls(camera, canvas);
+            orbitControls.target.set(0, 0, 0);
+            orbitControls.update();
+
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000011);
+
+            // ===== Reusable geometries =====
+
+            const hillMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false });
+            const soiMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00, transparent: true, opacity: 0.25, depthWrite: false });
+
+            // ===== Scene objects =====
+
+            var grid = new THREE.PolarGridHelper(10 * AU_TO_m, 4, 10, 20, 0xffffff, 0xffffff);
+            scene.add(grid);
+
+            scene.add(new THREE.PointLight(0xffffff, 1));
+
+            var sun = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
+            sun.scale.setScalar(696340000);
+            sun.rotation.set(0, 286.13 * TO_RADIANS, 63.87 * TO_RADIANS, "ZYX"); // RA and dec from NASA sun fact sheet
+            scene.add(sun);
+            const sunMass = 1.989e30; // kg
+
+            var referencePlane = new THREE.Mesh(new THREE.PlaneGeometry(20, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.8 }));
+            referencePlane.visible = false;
+            scene.add(referencePlane);
+
+            // ===== Parse data and create ships =====
+
+            const time = new Date();
+            document.getElementById("time").innerHTML = time.toUTCString();
+            var timeScale = 0;
+
+            recalculateSystem(time);
+            for (var body of Object.values(bodies)) {
+                scene.add(body.ellipse);
+                scene.add(body.sphere);
+            }
+
+            // bodies["EM_Bary"].soiWithBody(bodies["Mars"]);
+            // bodies["Mars"].soiWithBody(bodies["EM_Bary"]);
+
+            var ships = [new Ship(1e6)];
+            var mainShip = ships[0];
+            mainShip.position.copy(camera.position);
+            
+            function newHUDPoint(color) {
+                var point = new THREE.Sprite(new THREE.SpriteMaterial({
+                    color,
+                    sizeAttenuation: false,
+                    depthTest: false,
+                    depthWrite: false,
+                }));
+                point.scale.setScalar(0.02);
+                point.visible = false;
+                scene.add(point);
+                return point;
+            }
+            
+            const highlight = newHUDPoint(0xff0000);
+            const velocityHUD = newHUDPoint(0x00cc00);
+            const negativeVelocityHUD = newHUDPoint(0xcc0000);
+
+            // ===== Controls =====
+
+            const commandInput = document.getElementById("command");
+
+            window.addEventListener("keydown", e => {
+                if (e.key == "/") {
+                    commandInput.focus();
+                    e.preventDefault();
+                }
+                if (!orbitControls.enabled && document.activeElement != commandInput) {
+                    // This rotation is unrealistic -- should account for torque, thrusters, acceleration, etc.
+                    if (e.key == "w") { mainShip.rotateX(5 * TO_RADIANS); } // Pitch up
+                    else if (e.key == "s") { mainShip.rotateX(-5 * TO_RADIANS); } // Pitch down
+                    else if (e.key == "a") { mainShip.rotateY(5 * TO_RADIANS); } // Yaw left
+                    else if (e.key == "d") { mainShip.rotateY(-5 * TO_RADIANS); } // Yaw right
+                    else if (e.key == "ArrowLeft") { mainShip.rotateZ(5 * TO_RADIANS); } // Roll left
+                    else if (e.key == "ArrowRight") { mainShip.rotateZ(-5 * TO_RADIANS); } // Roll right
+                    else if (e.key == " ") { mainShip.drive = true; } // Drive
+                }
+            });
+            window.addEventListener("keyup", e => {
+                if (!orbitControls.enabled && document.activeElement != commandInput) {
+                    if (e.key == " ") { mainShip.drive = false; } // Release drive
+                }
+            });
+
+            commandInput.addEventListener("change", e => {
+                var args = commandInput.value.split(" ");
+                
+                if (orbitControls.enabled) {
+                    if (args[0] == "grid") { grid.visible = (args[1] == "show"); }
+                    else if (args[0] == "ecliptic") { referencePlane.visible = (args[1] == "show"); }
+                    else if (args[0] == "profile") { // Seasons relative to Earth (ecliptic coordinate system)
+                        if (args[1] == "spring") camera.position.set(20 * AU_TO_m, 0, 0);
+                        else if (args[1] == "summer") camera.position.set(-20 * AU_TO_m, 0, 0);
+                        else if (args[1] == "fall") camera.position.set(0, 0, 20 * AU_TO_m);
+                        else if (args[1] == "winter") camera.position.set(0, 0, -20 * AU_TO_m);
+                        orbitControls.target.set(0, 0, 0);
+                        orbitControls.update();
+                        // Or profile <longitude, degrees> to allow any angle
+                    }
+                    else if (args[0] == "focus") {
+                        if (args[1] == "sun") orbitControls.target.set(0, 0, 0);
+                        else if (args[1] == "ship") orbitControls.target.copy(mainShip.position);
+                        else { orbitControls.target.copy(bodies[args[1]].position); }
+                        camera.position.copy(orbitControls.target);
+                        camera.position.y = 2 * AU_TO_m;
+                        orbitControls.update();
+                    }
+                    else if (args[0] == "orbit") {
+                        if (args[2] == "all") {
+                            for (var n of bodies) {
+                                n.ellipse.visible = (args[1] == "show");
+                            }
+                        }
+                        else { bodies[args[2]].ellipse.visible = (args[1] == "show"); }
+                    }
+                }
+                
+                if (args[0] == "highlight") {
+                    if (args[1] == "none") { highlight.visible = false; }
+                    else {
+                        var body = bodies[args[2]];
+                        highlight.visible = true;
+                        highlight.position.copy(body.sphere.position);
+                    }
+                }
+                else if (args[0] == "distance") {
+                    var distance = bodies[args[1]].sphere.position.distanceTo(bodies[args[2]].sphere.position);
+                    document.getElementById("output").innerHTML = distance;
+                }
+                else if (args[0] == "time") {
+                    if (args[1] == "set") {
+                        var importantTimes = {
+                            "now": Date.now(), 
+                            "j2000": j2000_UTC
+                            // mb add option to define more user-defined points later?
+                        };
+                        if (!(args[2] in importantTimes)) time.setTime(Date.parse(args[2]));
+                        else time.setTime(importantTimes[args[2]]);
+                    }
+                    else if (args[1] == "add") {
+                        // Do not do the time thing, do the units thing
+                        // e.g. 2d 6h 5y 25m 30s, in any order, some terms optional
+                        // const milliseconds = { y: 3.15576e10, d: 8.64e7, h: 3.6e6, m: 6e4, s: 1e3 }; // ms too uncertain
+                        // var total = 0;
+                        // for (var i = 2; i < args.length; i++) {
+                        //     total += parseFloat(args[i].slice(0, -1)) * milliseconds[args[i].slice(-1)];
+                        // }
+                        // time.setDate(time.getDate() + total);
+
+                        const units = { y: "etUTCFullYear", d: "etUTCDate", h: "etUTCHours", m: "etUTCMinutes", s: "etUTCSeconds" }; // ms too uncertain
+                        for (var i = 2; i < args.length; i++) {
+                            var fn = units[args[i].slice(-1)];
+                            time["s" + fn](time["g" + fn]() + parseFloat(args[i].slice(0, -1)));
+                        }
+                    }
+                    else if (args[1] == "speed") {
+                        timeScale = parseFloat(args[2]); // Wouldnt it be better to use setInterval instead of relying on animation rate?
+                    }
+                    recalculateSystem(time);
+                    document.getElementById("time").innerHTML = time.toUTCString();
+                }
+                else if (args[0] == "controls") {
+                    if (args[1] == "ship") {
+                        orbitControls.enabled = false;
+
+                        shipVelocity.visible = true;
+                        shipNegativeVelocity.visible = true;
+                        grid.visible = false;
+
+                        // camera.position.set(0, 0, 500); // Third person
+                        camera.position.set(0, 0, 0); // First person
+                        camera.quaternion.set(0, 0, 0, 1);
+                        mainShip.add(camera);
+                    }
+                    else if (args[1] == "orbit") {
+                        orbitControls.enabled = true;
+
+                        shipVelocity.visible = false;
+                        shipNegativeVelocity.visible = false;
+                        grid.visible = true;
+
+                        camera.position.set(0, 3 * AU_TO_m, 0);
+                        orbitControls.target.set(0, 0, 0);
+                        camera.removeFromParent(); // OrbitControls requires camera to have no parent or scene parent
+                    }
+                }
+                // Basically just flips direction, no idea how quaternions work i just hardcoded the output from setFromUnitVectors lol
+                else if (args[0] == "rear") { camera.quaternion.set(0, 1, 0, 0); }
+                else if (args[0] == "front") { camera.quaternion.set(0, 0, 0, 1); }
+
+                commandInput.value = "";
+                commandInput.blur();
+            });
+
+            // ===== Render loop =====
+
+            var prevFrameTime = 0;
+            function animate(now) {
+                var deltaTime = document.hasFocus() ? now - prevFrameTime : 1000/60; // ms
+                prevFrameTime = now;
+                document.getElementById("fps").innerHTML = Math.round(1000 / deltaTime);
+                document.getElementById("coords").innerHTML = `[${(camera.position.x).toFixed(2)}, ${(camera.position.y).toFixed(2)}, ${(camera.position.z).toFixed(2)}]`;
+                document.getElementById("renderer").innerHTML = `[Geometries: ${renderer.info.memory.geometries}, Calls: ${renderer.info.render.calls}, Triangles: ${renderer.info.render.triangles}, Frame: ${renderer.info.render.frame}]`;
+                // document.getElementById("debug").innerHTML = `[Debug: ${0}]`;
+                
+                if (timeScale != 0) { // I think the timestep can be negative?
+                    time.setMilliseconds(time.getMilliseconds() + deltaTime * timeScale);
+                    recalculateSystem(time);
+                    document.getElementById("time").innerHTML = time.toUTCString();
+                }
+
+                // mainShip.update(deltaTime);
+                mainShip.update(1); // 1/60 s IRL = 1 s SIM
+                
+                if (!orbitControls.enabled) {
+                    velocityHUD.position.copy(mainShip.position).add(mainShip.velocity);
+                    negativeVelocityHUD.position.copy(mainShip.position).sub(mainShip.velocity);
+                }
+                var v = mainShip.velocity.length();
+                document.getElementById("position").innerHTML = `[${(mainShip.position.x).toFixed(2)}, ${(mainShip.position.y).toFixed(2)}, ${(mainShip.position.z).toFixed(2)}]`;
+                document.getElementById("velocity").innerHTML = `[${(mainShip.velocity.x).toFixed(2)}, ${(mainShip.velocity.y).toFixed(2)}, ${(mainShip.velocity.z).toFixed(2)}]
+                                                                  ${v.toFixed(2)} m/s, ${(v / 299792458 * 100).toFixed(2)}% c`;
+                document.getElementById("acceleration").innerHTML = `[${(mainShip.acceleration.x).toFixed(2)}, ${(mainShip.acceleration.y).toFixed(2)}, ${(mainShip.acceleration.z).toFixed(2)}]`;
+
+                renderer.render(scene, camera);
+                requestAnimationFrame(animate);
+            }
+            requestAnimationFrame(animate);
+        </script>
+    </body>
+</html>
