@@ -6,6 +6,6 @@ However, I couldn't get an impression of the real vast *expanse* of the solar sy
 So, I decided to turn this unhealthy activity into something productive.
 I took orbital elements from NASA, mixed it with THREE.js, and made this.
 
-Basically there are two main modes: a 3D map of the solar system, and a ship you can drive and is supposed to have gravity but I haven't fixed that yet because school is starting again and I am running out of time :(
+Basically there are two main modes: a 3D map of the solar system, and a ship you can drive. There are commands you can use, but the whole interface is NOT user friendly.
 
-This is *really really* unfinished and messy rn, it still even has messy comments everywhere, a list of features to add at the top, etc. I just wanted to make sure two weeks of work is backed up.
+This is *really really* unfinished and messy rn, it still even has messy comments everywhere, a list of features to add at the top, etc. I just wanted to make sure two weeks of work was backed up. I would love to fix them rn but school is starting again and I am running out of time :(
