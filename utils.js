@@ -1,4 +1,4 @@
-import { Matrix4, SphereGeometry, EllipseCurve, Vector3, BufferGeometry } from "three";
+import { SphereGeometry, EllipseCurve, Vector3, BufferGeometry } from "three";
 
 // ===== Constants =====
 

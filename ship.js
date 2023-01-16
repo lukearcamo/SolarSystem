@@ -1,42 +1,57 @@
 import { Mesh, SphereGeometry, MeshBasicMaterial, Vector3 } from "three";
+import { G } from "./utils.js";
+
+const _tmp = new Vector3();
 
 export class Ship extends Mesh {
     constructor(mass) {
         super(new SphereGeometry(200, 8, 6), new MeshBasicMaterial({ color: 0x555555 }));
+        // Do not scale the ship because then it will also scale camera position when camera is child of this
 
         this.mass = mass;
         this.velocity = new Vector3();
         this.acceleration = new Vector3();
         this.drive = false;
-
-        // Do not scale this because then it will also scale camera position when camera is child of this
-        // this.position.copy(position);
-        // scene.add(this.obj);
     }
-    update(deltaT=1) {
-        var force = new Vector3();
-        // for (var body of bodies) {
-        //     var F = body.mass / (this.position.distanceTo(body.sphere.position))**3;
-        //     var direction = body.sphere.position.clone().sub(this.position).multiplyScalar(F);
-        //     force.add(direction);
-        // }
-        // force.multiplyScalar(G); // Not actually force since this omits this.mass to get accel
+    update(deltaT=1, bodies=[]) {
+        this.acceleration.setScalar(0);
 
-        var driveForce = new Vector3();
+        for (var body of Object.values(bodies)) {
+            var F = body.mass / (this.position.distanceTo(body.position))**3;
+            _tmp.subVectors(body.position, this.position).multiplyScalar(F);
+            this.acceleration.add(_tmp);
+        }
+        this.acceleration.multiplyScalar(G); // Not actually force since this omits this.mass to get accel
+
         if (this.drive) {
-            camera.getWorldDirection(driveForce);
+            this.getWorldDirection(_tmp);
             // Not actually force since this omits this.mass to get accel
             // Also highly unrealistic for now lol
-            driveForce.multiplyScalar(1000000);
-            force.add(driveForce);
+            _tmp.multiplyScalar(1000000);
+            this.acceleration.add(_tmp);
         }
 
-        this.acceleration.copy(force);
+        _tmp.copy(this.acceleration).multiplyScalar(deltaT);
+        this.velocity.add(_tmp);
 
-        force.multiplyScalar(deltaT);
-        this.velocity.add(force); // dt**2 / 2
+        _tmp.copy(this.velocity).multiplyScalar(deltaT);
+        this.position.add(_tmp);
+    }
+    calculateTrajectory(deltaT, n) { // Ordinary Verlet integration
+        // Save state
+        var a = new Vector3().copy(this.acceleration);
+        var v = new Vector3().copy(this.velocity);
+        var x = new Vector3().copy(this.position);
 
-        force.copy(this.velocity).multiplyScalar(deltaT);
-        this.position.add(force);
+        var points = [];
+        for (var i = 0; i < n; i++) {
+            this.update(deltaT);
+            // And update the whole system as well, rmbr to save the original time
+            points.push(new Vector3().copy(this.position))
+        }
+        this.acceleration.copy(a);
+        this.velocity.copy(v);
+        this.position.copy(x);
+        return points;
     }
 }

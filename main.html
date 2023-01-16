@@ -51,8 +51,11 @@
             <div>Debug: <span id="debug"></span></div>
             <hr>
             <div>t: <span id="time"></span></div>
+            <br>
             <div>x: <span id="position"></span></div>
+            <br>
             <div>v: <span id="velocity"></span></div>
+            <br>
             <div>a: <span id="acceleration"></span></div>
         </div>
         <div id="crosshair"></div>
@@ -115,15 +118,16 @@
             // - https://en.wikipedia.org/wiki/Linear_differential_equation#System_of_linear_differential_equations
             // - https://evgenii.com/files/2018/08/two-body-problem-simulator/the_complete_code/
             // Next step: Improve UI, better highlight system, add CSS2DRenderer labels, etc.
-            // Optimize geometries, Separate to modules and host local server
+            // Optimize geometries
             // Improved command system,
             // - switch statements instead of if else if else?
             // - mb input js functions directly somehow, use console tho modules cannot expose global vars, idk
             // - Trajectories -- Just do regular https://en.wikipedia.org/wiki/Verlet_integration at first, then add https://en.wikipedia.org/wiki/Patched_conic_approximation
             // Next step: Satellites
-            // Next step: Gravity, Ship
-            // Next step: Rings
             // Make the planets spin
+            // Fuel, varying mass
+            // Hill sphere, Sphere of Influence
+            // Convert all spheres to instanced meshes
 
             // Terminal: python -m http.server
             // Can close terminal panel
@@ -175,12 +179,6 @@
 
             scene.add(new THREE.PointLight(0xffffff, 1));
 
-            var sun = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
-            sun.scale.setScalar(696340000);
-            sun.rotation.set(0, 286.13 * TO_RADIANS, 63.87 * TO_RADIANS, "ZYX"); // RA and dec from NASA sun fact sheet
-            scene.add(sun);
-            const sunMass = 1.989e30; // kg
-
             var referencePlane = new THREE.Mesh(new THREE.PlaneGeometry(20, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.8 }));
             referencePlane.visible = false;
             scene.add(referencePlane);
@@ -197,12 +195,21 @@
                 scene.add(body.sphere);
             }
 
+            console.log(bodies["Sun"].position);
+
+            // https://en.wikipedia.org/wiki/Rings_of_Saturn#Subdivisions_and_structures_within_the_rings
+            // Use a texture later on mb?
+            bodies["Saturn"].addRing(66.9e6, 140.18e6);
+
             // bodies["EM_Bary"].soiWithBody(bodies["Mars"]);
             // bodies["Mars"].soiWithBody(bodies["EM_Bary"]);
 
             var ships = [new Ship(1e6)];
             var mainShip = ships[0];
             mainShip.position.copy(camera.position);
+            // mainShip.position.copy(bodies["Jupiter"].position);
+            // mainShip.position.x += bodies["Jupiter"].radius + 10000; // And then if u set drive power to 6g, u cannot escape
+            scene.add(mainShip);
             
             function newHUDPoint(color) {
                 var point = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -221,6 +228,15 @@
             const velocityHUD = newHUDPoint(0x00cc00);
             const negativeVelocityHUD = newHUDPoint(0xcc0000);
 
+            // radius -- 2000000000
+            // If deltaT is 1 anyways, no need for catmull rom curve
+            // mainShip.drive = true;
+            // mainShip.velocity.set(100000000, 0, 0);
+            // var points = mainShip.calculateTrajectory(1, 10000);
+            // var trajectoryGeo = new THREE.BufferGeometry().setFromPoints(points);
+            // var trajectory = new THREE.Line(trajectoryGeo, new THREE.LineBasicMaterial({ color: 0xffff00 }));
+            // scene.add(trajectory);
+
             // ===== Controls =====
 
             const commandInput = document.getElementById("command");
@@ -232,8 +248,8 @@
                 }
                 if (!orbitControls.enabled && document.activeElement != commandInput) {
                     // This rotation is unrealistic -- should account for torque, thrusters, acceleration, etc.
-                    if (e.key == "w") { mainShip.rotateX(5 * TO_RADIANS); } // Pitch up
-                    else if (e.key == "s") { mainShip.rotateX(-5 * TO_RADIANS); } // Pitch down
+                    if (e.key == "w") { mainShip.rotateX(-5 * TO_RADIANS); } // Pitch up
+                    else if (e.key == "s") { mainShip.rotateX(5 * TO_RADIANS); } // Pitch down
                     else if (e.key == "a") { mainShip.rotateY(5 * TO_RADIANS); } // Yaw left
                     else if (e.key == "d") { mainShip.rotateY(-5 * TO_RADIANS); } // Yaw right
                     else if (e.key == "ArrowLeft") { mainShip.rotateZ(5 * TO_RADIANS); } // Roll left
@@ -254,13 +270,11 @@
                     if (args[0] == "grid") { grid.visible = (args[1] == "show"); }
                     else if (args[0] == "ecliptic") { referencePlane.visible = (args[1] == "show"); }
                     else if (args[0] == "profile") { // Seasons relative to Earth (ecliptic coordinate system)
-                        if (args[1] == "spring") camera.position.set(20 * AU_TO_m, 0, 0);
-                        else if (args[1] == "summer") camera.position.set(-20 * AU_TO_m, 0, 0);
-                        else if (args[1] == "fall") camera.position.set(0, 0, 20 * AU_TO_m);
-                        else if (args[1] == "winter") camera.position.set(0, 0, -20 * AU_TO_m);
+                        var distance = (args.length == 3 ? parseFloat(args[2]) : 20) * AU_TO_m;
+                        var angle = parseFloat(args[1]) * TO_RADIANS;
+                        camera.position.set(Math.cos(angle) * distance, 0, -Math.sin(angle) * distance);
                         orbitControls.target.set(0, 0, 0);
                         orbitControls.update();
-                        // Or profile <longitude, degrees> to allow any angle
                     }
                     else if (args[0] == "focus") {
                         if (args[1] == "sun") orbitControls.target.set(0, 0, 0);
@@ -280,7 +294,12 @@
                     }
                 }
                 
-                if (args[0] == "highlight") {
+                if (args[0] == "focus") { // Change this later to not teleport once thrusters have been added
+                    if (args[1] == "sun") mainShip.lookAt(0, 0, 0);
+                    else if (args[1] == "ship") mainShip.lookAt(mainShip.position);
+                    else { mainShip.lookAt(bodies[args[1]].position); }
+                }
+                else if (args[0] == "highlight") {
                     if (args[1] == "none") { highlight.visible = false; }
                     else {
                         var body = bodies[args[2]];
@@ -299,19 +318,10 @@
                             "j2000": j2000_UTC
                             // mb add option to define more user-defined points later?
                         };
-                        if (!(args[2] in importantTimes)) time.setTime(Date.parse(args[2]));
-                        else time.setTime(importantTimes[args[2]]);
+                        if (args[2] in importantTimes) time.setTime(importantTimes[args[2]]);
+                        else time.setTime(Date.parse(args[2]));
                     }
                     else if (args[1] == "add") {
-                        // Do not do the time thing, do the units thing
-                        // e.g. 2d 6h 5y 25m 30s, in any order, some terms optional
-                        // const milliseconds = { y: 3.15576e10, d: 8.64e7, h: 3.6e6, m: 6e4, s: 1e3 }; // ms too uncertain
-                        // var total = 0;
-                        // for (var i = 2; i < args.length; i++) {
-                        //     total += parseFloat(args[i].slice(0, -1)) * milliseconds[args[i].slice(-1)];
-                        // }
-                        // time.setDate(time.getDate() + total);
-
                         const units = { y: "etUTCFullYear", d: "etUTCDate", h: "etUTCHours", m: "etUTCMinutes", s: "etUTCSeconds" }; // ms too uncertain
                         for (var i = 2; i < args.length; i++) {
                             var fn = units[args[i].slice(-1)];
@@ -328,20 +338,20 @@
                     if (args[1] == "ship") {
                         orbitControls.enabled = false;
 
-                        shipVelocity.visible = true;
-                        shipNegativeVelocity.visible = true;
+                        velocityHUD.visible = true;
+                        negativeVelocityHUD.visible = true;
                         grid.visible = false;
 
                         // camera.position.set(0, 0, 500); // Third person
                         camera.position.set(0, 0, 0); // First person
-                        camera.quaternion.set(0, 0, 0, 1);
+                        camera.quaternion.set(0, 1, 0, 0);
                         mainShip.add(camera);
                     }
                     else if (args[1] == "orbit") {
                         orbitControls.enabled = true;
 
-                        shipVelocity.visible = false;
-                        shipNegativeVelocity.visible = false;
+                        velocityHUD.visible = false;
+                        negativeVelocityHUD.visible = false;
                         grid.visible = true;
 
                         camera.position.set(0, 3 * AU_TO_m, 0);
@@ -349,9 +359,11 @@
                         camera.removeFromParent(); // OrbitControls requires camera to have no parent or scene parent
                     }
                 }
-                // Basically just flips direction, no idea how quaternions work i just hardcoded the output from setFromUnitVectors lol
-                else if (args[0] == "rear") { camera.quaternion.set(0, 1, 0, 0); }
-                else if (args[0] == "front") { camera.quaternion.set(0, 0, 0, 1); }
+                else if (args[0] == "flip") { // Change this later to not teleport once thrusters have been added
+                    var direction = new THREE.Vector3();
+                    mainShip.getWorldDirection(direction);
+                    mainShip.lookAt(direction.negate().add(mainShip.position));
+                }
 
                 commandInput.value = "";
                 commandInput.blur();
@@ -375,17 +387,21 @@
                 }
 
                 // mainShip.update(deltaTime);
-                mainShip.update(1); // 1/60 s IRL = 1 s SIM
+                mainShip.update(1, bodies); // 1/60 s IRL = 1 s SIM
                 
                 if (!orbitControls.enabled) {
+                    // camera.quaternion.copy(mainShip.quaternion);
                     velocityHUD.position.copy(mainShip.position).add(mainShip.velocity);
                     negativeVelocityHUD.position.copy(mainShip.position).sub(mainShip.velocity);
                 }
                 var v = mainShip.velocity.length();
+                var a = mainShip.acceleration.length();
                 document.getElementById("position").innerHTML = `[${(mainShip.position.x).toFixed(2)}, ${(mainShip.position.y).toFixed(2)}, ${(mainShip.position.z).toFixed(2)}]`;
-                document.getElementById("velocity").innerHTML = `[${(mainShip.velocity.x).toFixed(2)}, ${(mainShip.velocity.y).toFixed(2)}, ${(mainShip.velocity.z).toFixed(2)}]
-                                                                  ${v.toFixed(2)} m/s, ${(v / 299792458 * 100).toFixed(2)}% c`;
-                document.getElementById("acceleration").innerHTML = `[${(mainShip.acceleration.x).toFixed(2)}, ${(mainShip.acceleration.y).toFixed(2)}, ${(mainShip.acceleration.z).toFixed(2)}]`;
+                document.getElementById("velocity").innerHTML = `[${(mainShip.velocity.x).toFixed(2)}, ${(mainShip.velocity.y).toFixed(2)}, ${(mainShip.velocity.z).toFixed(2)}]<br>
+                                                            &emsp; ${v.toFixed(2)} m/s<br>
+                                                            &emsp; ${(v / 299792458 * 100).toFixed(2)}% c`;
+                document.getElementById("acceleration").innerHTML = `[${(mainShip.acceleration.x).toFixed(2)}, ${(mainShip.acceleration.y).toFixed(2)}, ${(mainShip.acceleration.z).toFixed(2)}]<br>
+                                                            &emsp; ${(a / 9.81).toFixed(2)} g`;
 
                 renderer.render(scene, camera);
                 requestAnimationFrame(animate);

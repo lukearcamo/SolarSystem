@@ -1,5 +1,7 @@
-import { Line, LineBasicMaterial, Mesh, MeshBasicMaterial, Vector3, Matrix4 } from "three";
+import { Line, LineBasicMaterial, Mesh, MeshBasicMaterial, Vector3, Matrix4, RingGeometry, DoubleSide } from "three";
 import { sphereGeo, ellipseGeo, AU_TO_m, TO_RADIANS, mod } from "./utils.js";
+
+const ringMaterial = new MeshBasicMaterial({ color: 0x665544, side: DoubleSide });
 
 export class Body {
     constructor(mass, radius, color, tilt=[0, 90, 0, 0], data=[]) {
@@ -92,12 +94,26 @@ export class Body {
     //     var sphereOfInfluence = R * (this.mass / body.mass)**(2/5);
     //     this.soi.scale.setScalar(sphereOfInfluence / this.radius);
     // }
+    addRing(innerRadius, outerRadius) {
+        var ringGeometry = new RingGeometry(innerRadius / this.radius, outerRadius / this.radius, 30, 1);
+        ringGeometry.rotateY(-Math.PI / 2); // idk why y axis works
+        this.sphere.add(new Mesh(ringGeometry, ringMaterial));
+    }
 }
 
 export class SmallBody extends Body { // Also includes satellites, not proper definition but idc
     constructor(...args) {
         super(...args);
     }
+    // setReference(center, ecliptic=false) {
+    //     this.center = center; // Body
+    //     if (ecliptic) {
+
+    //     }
+    //     else {
+    //         this.sphere.position.copy()
+    //     }
+    // }
     recalculate(T) { // Or have a separate smallbody class, especially so u can pick different foci and reference plane; mb it should extend Body
         this.a = this.data[0];  // Semi-major axis, AU
         this.e = this.data[1];  // Eccentricity, unitless
@@ -130,4 +146,9 @@ export class SmallBody extends Body { // Also includes satellites, not proper de
         this.position.applyMatrix4(this.matrix);
         this.position.multiplyScalar(AU_TO_m);
     }
+    // updateGeometry(T) {
+    //     this.position.add(this.center.position);
+    //     super.updateGeometry(T);
+    //     this.ellipse.position.add(this.center.position);
+    // }
 }

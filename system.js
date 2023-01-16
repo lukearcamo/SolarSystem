@@ -16,6 +16,8 @@ export const bodies = { // Name, Mass (kg), Mean radius (m), Color, Tilt, Data [
 
     // These have different/lots of missing parameters -- not as well studied i guess?
     "Ceres":   new SmallBody(9.393e20,  939400, 0x555555, [0, 90, 0, 0], [2.767181743149466, 0.07881745101960996, 10.58634326912728, 73.47046154424713, 17.21565149614834, 80.26014869058888, 0.214115224389324]),
+    "Sun":     new Body(1.989e30, 696340000, 0xffcc00, [286.13, 63.87, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    // Later find sun orbital parameters around solar system barycenter
 };
 export function recalculateSystem(date) {
     var T = (date.getTime() - j2000_UTC) * ms_TO_CENTURIES;
