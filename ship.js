@@ -1,5 +1,5 @@
 import { Mesh, SphereGeometry, MeshBasicMaterial, Vector3 } from "three";
-import { G } from "./utils.js";
+import { G, TO_RADIANS } from "./utils.js";
 
 const _tmp = new Vector3();
 
@@ -12,6 +12,8 @@ export class Ship extends Mesh {
         this.velocity = new Vector3();
         this.acceleration = new Vector3();
         this.drive = false;
+
+        this.angularVelocity = new Vector3(); // degrees/sec
     }
     update(deltaT=1, bodies=[]) {
         this.acceleration.setScalar(0);
@@ -27,7 +29,7 @@ export class Ship extends Mesh {
             this.getWorldDirection(_tmp);
             // Not actually force since this omits this.mass to get accel
             // Also highly unrealistic for now lol
-            _tmp.multiplyScalar(1000000);
+            _tmp.multiplyScalar(1e9);
             this.acceleration.add(_tmp);
         }
 
@@ -36,6 +38,10 @@ export class Ship extends Mesh {
 
         _tmp.copy(this.velocity).multiplyScalar(deltaT);
         this.position.add(_tmp);
+
+        this.rotateX(this.angularVelocity.x * TO_RADIANS);
+        this.rotateY(this.angularVelocity.y * TO_RADIANS);
+        this.rotateZ(this.angularVelocity.z * TO_RADIANS);
     }
     calculateTrajectory(deltaT, n) { // Ordinary Verlet integration
         // Save state
