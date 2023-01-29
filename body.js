@@ -1,5 +1,5 @@
 import { Line, LineBasicMaterial, Mesh, MeshBasicMaterial, Vector3, Matrix4, RingGeometry, DoubleSide, Object3D, Euler } from "three";
-import { ellipseGeo, AU_TO_m, TO_RADIANS, mod } from "./utils.js";
+import { AU_TO_m, TO_RADIANS, mod } from "./utils.js";
 
 const ringMaterial = new MeshBasicMaterial({ color: 0x665544, side: DoubleSide });
 const sunMass = 1.989e30;
