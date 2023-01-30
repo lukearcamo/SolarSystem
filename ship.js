@@ -29,7 +29,8 @@ export class Ship extends Mesh {
             this.getWorldDirection(_tmp);
             // Not actually force since this omits this.mass to get accel
             // Also highly unrealistic for now lol
-            _tmp.multiplyScalar(1e9);
+            // _tmp.multiplyScalar(1e9);
+            _tmp.multiplyScalar(1e6);
             this.acceleration.add(_tmp);
         }
 

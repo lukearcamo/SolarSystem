@@ -10,7 +10,7 @@ Basically there are two main modes: a 3D map of the solar system, and a ship you
 
 This is *really really* unfinished and messy rn, it still even has messy comments everywhere, a list of features to add at the top, etc. I just wanted to make sure weeks of work is backed up.
 
-# Controls Documentation
+# Controls Documentation -- OUTDATED:
 ## `<body>` allowed values:
 * Sun
 * Mercury

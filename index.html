@@ -23,11 +23,6 @@
             color: white;
             font-size: 12px;
         }
-        #command {
-            background-color: black;
-            color: white;
-            border: 1px solid white;
-        }
         #crosshair {
             position: absolute;
             top: 50%;
@@ -37,6 +32,43 @@
             height: 10px;
             border: 1px solid red;
         }
+        #terminal {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60%;
+            height: 40%;
+            /* border: 1px solid white; */
+            
+            background-color: rgba(5, 5, 5, 0.7);
+            font-size: 16px;
+            color: white;
+            font-family: monospace;
+            
+            overflow: clip; /* add scrollbar later */
+            display: none;
+            pointer-events: none;
+        }
+        #output {
+            position: absolute;
+            bottom: 1.5em;
+            /* border: 1px solid red; */
+            pointer-events: all;
+        }
+        #prompt {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+        }
+        #input {
+            width: 90%;
+            background-color: black;
+            font-size: 16px;
+            font-family: monospace;
+            color: white;
+            border: none;
+            outline: none;
+        }
     </style>
     <body>
         <canvas id="canvas" tabindex="0" width="1280" height="720"></canvas>
@@ -45,8 +77,6 @@
             <div>FPS: <span id="fps"></span></div>
             <div>Renderer: <span id="renderer"></span></div>
             <hr>
-            <div>Command: <input type="text" id="command"></input></div>
-            <div>Output: <span id="output"></span></div>
             <div>Debug: <span id="debug"></span></div>
             <hr>
             <div>t: <span id="time"></span></div>
@@ -60,6 +90,13 @@
             <div>ω: <span id="angularVelocity"></span></div>
         </div>
         <div id="crosshair"></div>
+        <div id="terminal">
+            <div id="output">
+                SolarSystem 0.4
+                By Luke Arcamo<br>
+            </div>
+            <span id="prompt">>>> <input type="text" id="input"></span>
+        </div>
         <script type="importmap">
             {
                 "imports": {
@@ -119,15 +156,21 @@
             // - https://en.wikipedia.org/wiki/Linear_differential_equation#System_of_linear_differential_equations
             // - https://evgenii.com/files/2018/08/two-body-problem-simulator/the_complete_code/
             // Next step: Improve UI, better highlight system, add CSS2DRenderer labels, etc.
-            // Optimize geometries
+            // Optimize ellipses
             // Improved command system,
             // - switch statements instead of if else if else?
             // - mb input js functions directly somehow, use console tho modules cannot expose global vars, idk
             // - Trajectories -- Just do regular https://en.wikipedia.org/wiki/Verlet_integration at first, then add https://en.wikipedia.org/wiki/Patched_conic_approximation
             // Next step: Satellites
             // Make the planets spin
+            // - https://astropedia.astrogeology.usgs.gov/download/Docs/WGCCRE/WGCCRE2009reprint.pdf
             // Fuel for drive and thrusters, account for varying ship mass
             // Spheres of influence, Patched conic approx
+            // - Patched conic doesn't work well yet bc there are not enough bodies to make it worthwhile
+            // - because u will have to iterate over all bodies anyways to calculate all the SOIs
+            // There must be a way to adapt standard verlet integ into runge-kutta to make the trajectory more accurate
+            // meaning we can afford a lower-resolution set of points
+            // - LOD ellipse curve points and sphere geometries
 
             // Terminal: python -m http.server
             // Can close terminal panel
@@ -139,11 +182,11 @@
             
             import * as THREE from "three";
             import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-            // import * as Utils from "./utils.js";
             import { G, AU_TO_m, TO_RADIANS, ms_TO_CENTURIES, j2000_UTC } from "./utils.js";
             import { Body } from "./body.js";
             import { Ship } from "./ship.js";
             import { bodies, numBodies, recalculateSystem } from "./system.js";
+            import { parse, parseRef } from "./parser.js";
 
             // ===== Setup =====
 
@@ -163,7 +206,7 @@
             orbitControls.update();
 
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x000011);
+            scene.background = new THREE.Color(0x000018);
 
             // ===== Reusable geometries =====
 
@@ -262,11 +305,12 @@
             const velocityHUD = newHUDPoint(0x00cc00);
             const negativeVelocityHUD = newHUDPoint(0xcc0000);
 
-            // radius -- 2000000000
+            // radius -- 20000000000
             // If deltaT is 1 anyways, no need for catmull rom curve
             // mainShip.drive = true;
+            // mainShip.lookAt(0, 0, 0);
             // mainShip.velocity.set(100000000, 0, 0);
-            // var points = mainShip.calculateTrajectory(1, 10000);
+            // var points = mainShip.calculateTrajectory(1/60, 10000);
             // var trajectoryGeo = new THREE.BufferGeometry().setFromPoints(points);
             // var trajectory = new THREE.Line(trajectoryGeo, new THREE.LineBasicMaterial({ color: 0xffff00 }));
             // scene.add(trajectory);
@@ -277,12 +321,215 @@
 
             // ===== Controls =====
 
-            const commandInput = document.getElementById("command");
+            const terminal = document.getElementById("terminal");
+            const commandInput = document.getElementById("input");
+            const commandOutput = document.getElementById("output");
+
+            function disp(text) { commandOutput.innerHTML += text + "<br>" }
+
+            // Notice below: gradually replaced dependence on body, body.position, etc. with arbitrary position vectors
+            // Idea: special dynamic variables: ans, now, mb linked by reference like mars.position
+            // Idea: separate sandbox into new file, and give it access to all the following variables:
+            // - camera, orbitcontrols, ellipses, hillSPheres, bodySpheres, mainShip, time, grid
+            const sandbox = {
+                ans: null,
+                AU: AU_TO_m,
+                ship: mainShip,
+                true: true,
+                false: false,
+                j2000: j2000_UTC,
+                // pi: Math.PI,
+                // all: "all",
+                // null: null,
+                // mars: bodies["Mars"],
+
+                add: function(a, b) {
+                    if (!a.isVector3 && !b.isVector3) return a + b;
+                    if (!a.isVector3) a = new THREE.Vector3(a, a, a);
+                    if (!b.isVector3) b = new THREE.Vector3(b, b, b);
+                    return new THREE.Vector3().addVectors(a, b);
+                },
+                vec3: function(x, y, z) {
+                    return new THREE.Vector3(x, y, z);
+                },
+                getX: function(vec) {
+                    return vec.x;
+                },
+                grid: function(show) {
+                    if (orbitControls.enabled) grid.visible = show;
+                },
+                profile: function(angle, distance=20) {
+                    if (orbitControls.enabled) {
+                        distance *= AU_TO_m;
+                        angle *= TO_RADIANS;
+                        camera.position.set(Math.cos(angle) * distance, 0, -Math.sin(angle) * distance);
+                        orbitControls.target.set(0, 0, 0);
+                        orbitControls.update();
+                    }
+                },
+                focus: function(point) {
+                    if (orbitControls.enabled) {
+                        // if (point.position) point = point.position;
+                        orbitControls.target.copy(point);
+                        camera.position.copy(point);
+                        camera.position.y = 2 * AU_TO_m;
+                        orbitControls.update();
+                    }
+                },
+                // distance: function(body1, body2) {
+                //     return body1.position.distanceTo(body2.position);
+                // },
+                distance: function(point1, point2) {
+                    return point1.distanceTo(point2);
+                },
+                escapeVelocity: function(body, point=mainShip.position) {
+                    var distance = body.position.distanceTo(point);
+                    return Math.sqrt(2 * G * bodies.mass / distance);
+                },
+                hillSphere: function(show, body) {
+                    var i = Object.values(bodies).indexOf(body);
+                    if (show) {
+                        var hs = body.hillSphere();
+                        var matrix = new THREE.Matrix4().makeScale(hs, hs, hs).setPosition(body.position);
+                        hillSpheres.setMatrixAt(i, matrix);
+                    }
+                    else {
+                        hillSpheres.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+                    }
+                    hillSpheres.instanceMatrix.needsUpdate = true;
+                },
+                tilt: function(body) {
+                    var orbitalPole = new THREE.Vector3(0, 1, 0).applyMatrix4(body.orbitMatrix);
+                    var rotationalPole = new THREE.Vector3(0, 1, 0).applyMatrix4(body.tiltMatrix);
+                    return Math.acos(rotationalPole.dot(orbitalPole)) / TO_RADIANS;
+                },
+                orbit: function(show, body=null) {
+                    if (orbitControls.enabled) {
+                        if (body) {
+                            var i = Object.values(bodies).indexOf(body);
+                            ellipses[i].visible = show;
+                        }
+                        else {
+                            for (var i = 0; i < numBodies; i++) {
+                                ellipses[i].visible = show;
+                            }
+                        }
+                    }
+                },
+                now: function() {
+                    return Date.now();
+                },
+                setTime: function(y, month, d, h, m, s) {
+                    if (month == undefined) time.setTime(y);
+                    else { // Doesnt new Date(...) do this more concisely?
+                        time.setUTCFullYear(y);
+                        time.setUTCMonth(month);
+                        time.setUTCDate(d);
+                        time.setUTCHours(h);
+                        time.setUTCMinutes(m);
+                        time.setUTCSeconds(s);
+                    }
+                    recalculateSystem(time, bodySpheres, ellipses);
+                    document.getElementById("time").innerHTML = time.toUTCString();
+                },
+                addTime: function(y, d, h, m, s) {
+                    time.setUTCFullYear(time.getUTCFullYear() + y);
+                    time.setUTCDate(time.getUTCDate() + d);
+                    time.setUTCHours(time.getUTCHours() + h);
+                    time.setUTCMinutes(time.getUTCMinutes() + m);
+                    time.setUTCSeconds(time.getUTCSeconds() + s);
+
+                    recalculateSystem(time, bodySpheres, ellipses);
+                    document.getElementById("time").innerHTML = time.toUTCString();
+                },
+                timeSpeed: function(n) {
+                    timeScale = parseFloat(n); // Wouldnt it be better to use setInterval instead of relying on animation rate?
+                },
+                
+                // Creative mode commands, or commands subject to change:
+                // e.g. Change this later to not teleport once thrusters have been added
+                // Like calculate which thrusters to use and for what duration
+                lookAt: function(point) {
+                    if (!orbitControls.enabled) {
+                        // if (point.position) point = point.position;
+                        mainShip.lookAt(point);
+                    }
+                },
+                teleport: function(x, y, z) {
+                    mainShip.position.set(x, y, z);
+                },
+                setVelocity(x, y, z) {
+                    mainShip.velocity.set(x, y, z);
+                },
+                flip: function() { // Change this later to not teleport once thrusters have been added
+                    var direction = new THREE.Vector3();
+                    mainShip.getWorldDirection(direction);
+                    mainShip.lookAt(direction.negate().add(mainShip.position));
+                },
+                highlight: function(point) {
+                    if (point == undefined) { highlight.visible = false; }
+                    else {
+                        highlight.visible = true;
+                        highlight.position.copy(point);
+                    }
+                },
+                ecliptic: function(show) {
+                    if (orbitControls.enabled) referencePlane.visible = show;
+                },
+                control: function(controlShip) {
+                    if (controlShip) {
+                        orbitControls.enabled = false;
+
+                        velocityHUD.visible = true;
+                        negativeVelocityHUD.visible = true;
+                        grid.visible = false;
+
+                        orbitControls.saveState();
+                        mainShip.add(camera);
+                        // camera.position.set(0, 0, 500); // Third person
+                        camera.position.set(0, 0, 0); // First person
+                        camera.quaternion.set(0, 1, 0, 0);
+                    }
+                    else {
+                        orbitControls.enabled = true;
+
+                        velocityHUD.visible = false;
+                        negativeVelocityHUD.visible = false;
+                        grid.visible = true; // save/restore state?
+
+                        orbitControls.reset();
+                        camera.removeFromParent(); // OrbitControls requires camera to have no parent or scene parent
+                        camera.updateMatrix();
+                    }
+                },
+                // binds position and lookAt; separate from target lock, which only binds lookAt
+                positionLock: null,
+                cameraLocal: new THREE.Vector3(0, 10000, 0),
+                // mb orbit controls should still be active? update() must be called every frame
+                targetLock: null,  // like target locking; use rotation thrusters
+            };
+
+            const history = [];
+            var historyPointer = -1;
 
             window.addEventListener("keydown", e => {
                 if (e.key == "/") {
+                    terminal.style.display = "block";
                     commandInput.focus();
                     e.preventDefault();
+                }
+                if (e.key == "Escape") {
+                    terminal.style.display = "none";
+                }
+                if (document.activeElement == commandInput) {
+                    if (e.key == "ArrowUp" && historyPointer > 0) {
+                        historyPointer -= 1;
+                        commandInput.value = history[historyPointer];
+                    }
+                    else if (e.key == "ArrowDown" && historyPointer < history.length - 1) {
+                        historyPointer += 1;
+                        commandInput.value = history[historyPointer];
+                    }
                 }
                 if (!orbitControls.enabled && document.activeElement != commandInput) {
                     if (e.key == "w") { mainShip.angularVelocity.x -= 0.1; } // Pitch up
@@ -302,136 +549,26 @@
                 }
             });
 
-            commandInput.addEventListener("change", e => {
-                var args = commandInput.value.split(" ");
-                
-                if (orbitControls.enabled) {
-                    if (args[0] == "grid") { grid.visible = (args[1] == "show"); }
-                    else if (args[0] == "ecliptic") { referencePlane.visible = (args[1] == "show"); }
-                    else if (args[0] == "profile") {
-                        var distance = (args.length == 3 ? parseFloat(args[2]) : 20) * AU_TO_m;
-                        var angle = parseFloat(args[1]) * TO_RADIANS;
-                        camera.position.set(Math.cos(angle) * distance, 0, -Math.sin(angle) * distance);
-                        orbitControls.target.set(0, 0, 0);
-                        orbitControls.update();
-                    }
-                    else if (args[0] == "focus") {
-                        if (args[1] == "ship") orbitControls.target.copy(mainShip.position);
-                        else { orbitControls.target.copy(bodies[args[1]].position); }
-                        camera.position.copy(orbitControls.target);
-                        camera.position.y = 2 * AU_TO_m;
-                        orbitControls.update();
-                    }
-                    else if (args[0] == "orbit") {
-                        if (args[2] == "all") {
-                            for (var i = 0; i < numBodies; i++) {
-                                ellipses[i].visible = (args[1] == "show");
-                            }
+            commandInput.addEventListener("keydown", e => {
+                if (e.key == "Enter") {
+                    disp(">>> " + commandInput.value);
+                    try {
+                        sandbox.ans = parse(commandInput.value, sandbox);
+
+                        if (sandbox.ans != undefined) {
+                            if (sandbox.ans.isVector3) disp(`[${sandbox.ans.x},<br>${sandbox.ans.y},<br>${sandbox.ans.z}]`); // use vecToString with max precision?
+                            // else if (typeof ans == "function") ; // add display docs/help feature
+                            else disp(sandbox.ans);
                         }
-                        else {
-                            var i = Object.values(bodies).indexOf(bodies[args[2]]);
-                            ellipses[i].visible = (args[1] == "show");
-                        }
+                        else disp("undefined");
                     }
-                }
-                
-                // Change this later to not teleport once thrusters have been added
-                // Like calculate which thrusters to use and for what duration
-                if (args[0] == "focus") {
-                    if (args[1] == "ship") mainShip.lookAt(mainShip.position);
-                    else { mainShip.lookAt(bodies[args[1]].position); }
-                }
-                else if (args[0] == "highlight") {
-                    if (args[1] == "none") { highlight.visible = false; }
-                    else {
-                        var body = bodies[args[2]];
-                        highlight.visible = true;
-                        highlight.position.copy(body.position);
+                    catch (error) {
+                        disp(error);
                     }
+                    historyPointer = history.push(commandInput.value);
+                    commandInput.value = "";
+                    // commandInput.blur();
                 }
-                else if (args[0] == "distance") {
-                    var distance = bodies[args[1]].position.distanceTo(bodies[args[2]].position);
-                    document.getElementById("output").innerHTML = distance;
-                }
-                else if (args[0] == "escapeVelocity") {
-                    var distance = bodies[args[1]].position.distanceTo(mainShip.position);
-                    var escapeVelocity = Math.sqrt(2 * G * bodies[args[1]].mass / distance);
-                    document.getElementById("output").innerHTML = escapeVelocity;
-                }
-                else if (args[0] == "hillSphere") {
-                    var i = Object.values(bodies).indexOf(bodies[args[2]]);
-                    if (args[1] == "show") {
-                        var hs = bodies[args[2]].hillSphere();
-                        var matrix = new THREE.Matrix4().makeScale(hs, hs, hs).setPosition(bodies[args[2]].position);
-                        hillSpheres.setMatrixAt(i, matrix);
-                    }
-                    else {
-                        hillSpheres.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
-                    }
-                    hillSpheres.instanceMatrix.needsUpdate = true;
-                }
-                else if (args[0] == "tilt") {
-                    var orbitalPole = new THREE.Vector3(0, 1, 0).applyMatrix4(bodies[args[1]].orbitMatrix);
-                    var rotationalPole = new THREE.Vector3(0, 1, 0).applyMatrix4(bodies[args[1]].tiltMatrix);
-                    var axialTilt = Math.acos(rotationalPole.dot(orbitalPole)) / TO_RADIANS;
-                    document.getElementById("output").innerHTML = axialTilt.toFixed(2) + " °C";
-                }
-                else if (args[0] == "time") {
-                    if (args[1] == "set") {
-                        var importantTimes = {
-                            "now": Date.now(), 
-                            "j2000": j2000_UTC
-                            // mb add option to define more user-defined points later?
-                        };
-                        if (args[2] in importantTimes) time.setTime(importantTimes[args[2]]);
-                        else time.setTime(Date.parse(args[2]));
-                    }
-                    else if (args[1] == "add") {
-                        const units = { y: "etUTCFullYear", d: "etUTCDate", h: "etUTCHours", m: "etUTCMinutes", s: "etUTCSeconds" };
-                        for (var i = 2; i < args.length; i++) {
-                            var fn = units[args[i].slice(-1)];
-                            time["s" + fn](time["g" + fn]() + parseFloat(args[i].slice(0, -1)));
-                        }
-                    }
-                    else if (args[1] == "speed") {
-                        timeScale = parseFloat(args[2]); // Wouldnt it be better to use setInterval instead of relying on animation rate?
-                    }
-                    recalculateSystem(time, bodySpheres, ellipses);
-                    document.getElementById("time").innerHTML = time.toUTCString();
-                }
-                else if (args[0] == "controls") {
-                    if (args[1] == "ship") {
-                        orbitControls.enabled = false;
-
-                        velocityHUD.visible = true;
-                        negativeVelocityHUD.visible = true;
-                        grid.visible = false;
-
-                        // camera.position.set(0, 0, 500); // Third person
-                        camera.position.set(0, 0, 0); // First person
-                        camera.quaternion.set(0, 1, 0, 0);
-                        mainShip.add(camera);
-                    }
-                    else if (args[1] == "orbit") {
-                        orbitControls.enabled = true;
-
-                        velocityHUD.visible = false;
-                        negativeVelocityHUD.visible = false;
-                        grid.visible = true;
-
-                        camera.position.set(0, 3 * AU_TO_m, 0);
-                        orbitControls.target.set(0, 0, 0);
-                        camera.removeFromParent(); // OrbitControls requires camera to have no parent or scene parent
-                    }
-                }
-                else if (args[0] == "flip") { // Change this later to not teleport once thrusters have been added
-                    var direction = new THREE.Vector3();
-                    mainShip.getWorldDirection(direction);
-                    mainShip.lookAt(direction.negate().add(mainShip.position));
-                }
-
-                commandInput.value = "";
-                commandInput.blur();
             });
 
             // ===== Render loop =====
@@ -451,11 +588,23 @@
                     document.getElementById("time").innerHTML = time.toUTCString();
                 }
 
+                // Shouldn't this be within the if statement above?
                 mainShip.update(deltaTime / 1000, bodies); // 1/60 s IRL = 1/60 s SIM
                 
-                if (!orbitControls.enabled) {
-                    velocityHUD.position.copy(mainShip.position).add(mainShip.velocity);
-                    negativeVelocityHUD.position.copy(mainShip.position).sub(mainShip.velocity);
+                if (orbitControls.enabled) {
+                    if (sandbox.targetLock) {
+                        orbitControls.target.copy(sandbox.targetLock);
+                        orbitControls.update();
+                    }
+                    if (sandbox.positionLock) {
+                        camera.position.addVectors(sandbox.positionLock, sandbox.cameraLocal);
+                        orbitControls.target.copy(sandbox.positionLock);
+                        orbitControls.update();
+                    }
+                }
+                else {
+                    velocityHUD.position.addVectors(mainShip.position, mainShip.velocity);
+                    negativeVelocityHUD.position.subVectors(mainShip.position, mainShip.velocity);
                 }
                 var v = mainShip.velocity.length();
                 var a = mainShip.acceleration.length();
