@@ -352,9 +352,6 @@
                 vec3: function(x, y, z) {
                     return new THREE.Vector3(x, y, z);
                 },
-                getX: function(vec) {
-                    return vec.x;
-                },
                 grid: function(show) {
                     if (orbitControls.enabled) grid.visible = show;
                 },
@@ -376,15 +373,12 @@
                         orbitControls.update();
                     }
                 },
-                // distance: function(body1, body2) {
-                //     return body1.position.distanceTo(body2.position);
-                // },
                 distance: function(point1, point2) {
                     return point1.distanceTo(point2);
                 },
                 escapeVelocity: function(body, point=mainShip.position) {
                     var distance = body.position.distanceTo(point);
-                    return Math.sqrt(2 * G * bodies.mass / distance);
+                    return Math.sqrt(2 * G * body.mass / distance);
                 },
                 hillSphere: function(show, body) {
                     var i = Object.values(bodies).indexOf(body);

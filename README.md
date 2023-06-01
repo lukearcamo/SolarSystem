@@ -10,21 +10,40 @@ Basically there are two main modes: a 3D map of the solar system, and a ship you
 
 This is *really really* unfinished and messy rn, it still even has messy comments everywhere, a list of features to add at the top, etc. I just wanted to make sure weeks of work is backed up.
 
-# Controls Documentation -- OUTDATED:
-## `<body>` allowed values:
-* Sun
-* Mercury
-* EM_Bary
-* Mars
-* Jupiter
-* Saturn
-* Uranus
-* Neptune
-* Ceres
-* Luna
+Anyways the project is accessible (for desktop only) at [https://lukearcamo.github.io/SolarSystem](https://lukearcamo.github.io/SolarSystem).
 
-`controls ship/orbit`
-Switch between controlling the ship or seeing a solar system overview.
+# Controls Documentation
+
+The command parser essentially uses subset of JavaScript. Press `/` to type commands. Use up/down arrows to traverse command history.
+
+## Variables
+
+Each body object has an accessible `.mass` and `.position` vector, and each component can be accessed by `.x`, `.y`, and `.z`. 
+* sun
+* mercury
+* em_bary
+* mars
+* jupiter
+* saturn
+* uranus
+* neptune
+* ceres
+* luna (currently broken)
+
+`ans` -- Variable that stores previous return value.
+
+`AU` -- Conversion factor for AU to m: 1.495978707e11
+
+`ship` -- Ship object.
+
+`true/false` -- Boolean keywords.
+
+## View switching
+
+There are two views: One where you control a ship, and another where you control an orbit camera and see an overview of the solar system.
+
+`control(ship)` -- Switch to ship view.\
+`control(orbit)` -- Switch to orbit view.
 
 ## Ship Controls
 * `w` pitches the ship up
@@ -35,43 +54,70 @@ Switch between controlling the ship or seeing a solar system overview.
 * `ArrowRight` rolls the whip right
 * Hold `Space` to enable the drive 
 
-# Calculation commands
+## HUD commands
 
-`distance <body> <body>`\
-Outputs the distance between two bodies.
+`hillSphere(bool, body)` -- Show/hide the hill sphere of a given body.
 
-`escapeVelocity <body>`\
-Outputs the escape velocity from a body at the ship's current position.
+`orbit(bool, body)` -- Show/hide the orbit of a given body.
 
-`hillSphere show/hide <body>`\
-Visualizes the hill sphere of a body.
+`highlight(point)` -- Highlights the given point on the HUD.
 
-`tilt <body>`\
-Outputs the axial tilt of a body.
+## Calculation commands
 
-## Orbit Commands
-`grid show/hide`\
-Shows/hides the grid lines, showing the north/east/south/west directions on the ecliptic, as well as 1 AU spacings.
+`add(a, b)` -- Adds a and b, where a and/or b can be a scalar or vector.
 
-`profile <ecliptic_longitude> <distance=20>`\
-Teleports the orbit camera onto the ecliptic plane, *ecliptic_longitude* degrees from the vernal equinox and *distance* AU away. Default distance is 20 AU.
+`vec3(x, y, z)` -- Constructs a new vector from three scalars.
 
-`focus ship/<body>`\
-Teleports the orbit camera above the object and looks at it.
+`distance(point1, point2)` -- Returns the Euclidean distance between two given 3D point vectors.
 
-`orbit show/hide all/<body>`\
-Shows/hides the lines of the orbit ellipses.
+`escapeVelocity(body, point=ship.position)` -- Returns the velocity required to escape a body's gravity at a given point.
 
-`time set now/j2000/<YYYY-MM-DDTHH:mm:ss.sssZ>`\
-Sets all bodies to their current positions, positions at epoch Jan 1, 2000 noon, or positions at an ISO 8601 date.
+`tilt(body)` -- Returns the axial tilt, in degrees, of a given body.
 
-`time add <n>y/d/h/m/s...`\
-Sets all bodies to their position after *n* years/days/hours/months/seconds, where n is a float. Can have multiple arguments, and in any order e.g. "2.4h 25d 6y".
+## Simulation time commands
 
-`time speed <n>`\
-Simulates the passage of time on the positions of all bodies, sped by a factor of *n*. For example:
-* n = 1: real-time
+`now()` -- Returns the current Unix date.
+
+`setTime(j2000)` -- Sets the simulation time to the epoch (Jan 1, 2000) and recalculates the position of the bodies.\
+`setTime(y, month, d, h, m, s)` -- Sets the simulation time and recalculates position of the bodies.
+
+`addTime(y, d, h, m, s)` -- Adds to the simulation time and recalculates the position of the bodies.
+
+`timeSpeed(n)` -- Simulates the passage of time on the positions of all bodies, sped by a factor of *n*. For example:
+* n = 1: Real time
 * n = 60: 1s IRL = 1 min simulation
 * n = -2: Double-speed, in reverse
+* n = 0: Paused
 
-## Ship Commands
+## Orbit view-specific commands
+
+`grid(bool)` -- Show/hide the polar grid in orbit view.
+
+`profile(angle, distance=20)` -- Teleport to the specified angle in degrees at a given distance in AU. Angle is relative to the vernal equinox, which is 0 degrees.
+
+`focus(point)` -- Centers the orbit camera on the given point, represented by a 3D vector.
+
+`controls ship/orbit`
+Switch between controlling the ship or seeing a solar system overview.
+
+`ecliptic(bool)` -- Show/hide the ecliptic plane.
+
+## Ship view-specific commands
+
+These are more like unrealistic admin commands for now.
+
+`lookAt(point)` -- Makes the ship face a given point. TODO: make the ship turn gradually instead of instantly jumping.
+
+`teleport(x, y, z)` -- Teleports the ship to a given x, y, z coordinate.
+
+`setVelocity(x, y, z)` -- Sets the ship's x, y, and z velocity.
+
+`flip()` -- Faces the ship in the opposite direction. TODO: make the ship turn gradually instead of instantly jumping.
+
+## Advanced
+
+`positionLock` -- Set this variable to a moving point vector to bind the camera's position to it.
+
+`cameraLocal` -- Camera's local position relative to positionLock.
+
+`targetLock` -- Set this variable to a moving point vector to bind the camera's rotation to face it.
